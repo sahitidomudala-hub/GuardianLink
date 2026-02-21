@@ -14,6 +14,7 @@ import {
 import { getStatusColor } from '../utils/riskLogic';
 import MeetingCalendar from './MeetingCalendar';
 import PerformanceChart from './PerformanceChart';
+import VideoCall from './VideoCall';
 import { requestNotificationPermission, checkAndNotify } from '../utils/webNotifications';
 
 function StudentDashboard() {
@@ -37,6 +38,7 @@ function StudentDashboard() {
 
   // Tab state
   const [activeTab, setActiveTab] = useState('overview');
+  const [activeCall, setActiveCall] = useState(null);
 
   const prevNotifCount = React.useRef(0);
 
@@ -104,6 +106,25 @@ function StudentDashboard() {
       await addDoc(collection(db, 'notifications'), {
         type: 'note_approved',
         message: `${profile.name} approved a sensitive note for parent visibility`,
+        createdAt: serverTimestamp(),
+        read: false
+      });
+    } else if (!approved && profile) {
+      // Reject the note and mark as not approved
+      const updatedNotes = (profile.notes || []).map(note => {
+        if (note.content === noteContent && note.isSensitive) {
+          return { ...note, approved: false, isParentVisible: false };
+        }
+        return note;
+      });
+      const studentRef = doc(db, 'students', profile.id);
+      await updateDoc(studentRef, { notes: updatedNotes });
+
+      // Notify mentor that student rejected the note
+      await addDoc(collection(db, 'notifications'), {
+        type: 'note_rejected',
+        studentEmail: profile.email,
+        message: `${profile.name} rejected parent visibility for a sensitive note: "${noteContent.substring(0, 50)}..."`,
         createdAt: serverTimestamp(),
         read: false
       });
@@ -395,17 +416,26 @@ function StudentDashboard() {
                         key={index}
                         style={{
                           padding: '15px',
-                          background: task.completed ? '#d4edda' : '#f8f9fa',
+                          background: task.completed ? '#d4edda' : new Date(task.dueDate) < new Date() ? '#fff5f5' : '#f8f9fa',
                           borderRadius: '4px',
                           marginBottom: '10px',
-                          borderLeft: task.completed ? '4px solid #28a745' : '4px solid #007bff'
+                          borderLeft: task.completed ? '4px solid #28a745' : new Date(task.dueDate) < new Date() ? '4px solid #dc3545' : '4px solid #007bff'
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                           <div>
                             <h4 style={{ marginBottom: '5px' }}>{task.title}</h4>
                             <p style={{ color: '#666', marginBottom: '5px' }}>{task.description}</p>
-                            <small style={{ color: '#999' }}>Due: {task.dueDate}</small>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <small style={{ color: '#999' }}>Due: {task.dueDate}</small>
+                              {task.completed ? (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#d4edda', color: '#155724', fontWeight: 'bold' }}>✓ Completed</span>
+                              ) : new Date(task.dueDate) < new Date() ? (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#f8d7da', color: '#721c24', fontWeight: 'bold' }}>⚠ Overdue</span>
+                              ) : (
+                                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#cce5ff', color: '#004085' }}>Pending</span>
+                              )}
+                            </div>
                           </div>
                           {!task.completed ? (
                             <button
@@ -551,7 +581,7 @@ function StudentDashboard() {
                 {/* Meeting Calendar */}
                 <div className="card">
                   <h3>Meeting Calendar</h3>
-                  <MeetingCalendar meetings={meetings} />
+                  <MeetingCalendar meetings={meetings.filter(m => !m.invitees || m.invitees.includes('student'))} />
                 </div>
 
                 {/* Request Meeting */}
@@ -613,7 +643,7 @@ function StudentDashboard() {
                   {meetings.length === 0 ? (
                     <p style={{ color: '#999', fontStyle: 'italic' }}>No meetings scheduled</p>
                   ) : (
-                    meetings.map((meeting, index) => (
+                    meetings.filter(m => !m.invitees || m.invitees.includes('student')).map((meeting, index) => (
                       <div
                         key={index}
                         style={{
@@ -634,21 +664,36 @@ function StudentDashboard() {
                           color: meeting.status === 'accepted' ? '#155724' : meeting.status === 'rescheduled' ? '#856404' : '#004085'
                         }}>{meeting.status || 'pending'}</span></p>
                         <p style={{ fontSize: '13px', color: '#666' }}>Reschedules: {meeting.rescheduleCount || 0}/2</p>
-                        {meeting.status !== 'accepted' && (
-                          <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
-                            <button className="btn btn-success" style={{ fontSize: '12px' }} onClick={() => handleAcceptMeeting(index)}>
-                              Accept
-                            </button>
+                        <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          {meeting.status !== 'accepted' && (
+                            <>
+                              <button className="btn btn-success" style={{ fontSize: '12px' }} onClick={() => handleAcceptMeeting(meetings.indexOf(meeting))}>
+                                Accept
+                              </button>
+                              <button
+                                className="btn btn-primary"
+                                style={{ fontSize: '12px' }}
+                                onClick={() => handleMeetingReschedule(meetings.indexOf(meeting))}
+                                disabled={meeting.rescheduleCount >= 2}
+                              >
+                                Reschedule ({meeting.rescheduleCount || 0}/2)
+                              </button>
+                            </>
+                          )}
+                          {meeting.status === 'accepted' && (
                             <button
-                              className="btn btn-primary"
-                              style={{ fontSize: '12px' }}
-                              onClick={() => handleMeetingReschedule(index)}
-                              disabled={meeting.rescheduleCount >= 2}
+                              className="btn btn-success"
+                              style={{ fontSize: '12px', padding: '6px 14px' }}
+                              onClick={() => setActiveCall({
+                                meetingId: meeting.meetingId || `meeting_${profile.id}_${meeting.date}`,
+                                userId: currentUser.uid,
+                                userName: profile?.name || 'Student'
+                              })}
                             >
-                              Reschedule ({meeting.rescheduleCount || 0}/2)
+                              📹 Join Call
                             </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -659,38 +704,62 @@ function StudentDashboard() {
             {/* ──── NOTIFICATIONS TAB ──── */}
             {activeTab === 'notifications' && (
               <div className="card">
-                <h3>Notifications</h3>
+                <h3>Notifications ({notifications.length})</h3>
                 {notifications.length === 0 ? (
                   <p style={{ color: '#999', fontStyle: 'italic' }}>No new notifications</p>
                 ) : (
-                  notifications.map(notif => (
-                    <div key={notif.id} className="alert alert-warning" style={{ marginBottom: '10px' }}>
-                      <p>{notif.message}</p>
-                      {notif.type === 'note_approval' && (
-                        <div style={{ marginTop: '10px' }}>
-                          <button
-                            className="btn btn-success"
-                            style={{ marginRight: '10px' }}
-                            onClick={() => handleNoteApproval(notif.id, notif.noteContent, true)}
-                          >
-                            Approve Parent Visibility
-                          </button>
-                          <button
-                            className="btn btn-danger"
-                            onClick={() => handleNoteApproval(notif.id, notif.noteContent, false)}
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))
+                  notifications.map(notif => {
+                    const typeConfig = {
+                      note_approval: { icon: '📝', label: 'Note Approval', bg: '#fff3cd', border: '#ffc107' },
+                      task_assigned: { icon: '📋', label: 'New Task', bg: '#cce5ff', border: '#007bff' },
+                      meeting_scheduled: { icon: '📅', label: 'Meeting', bg: '#d4edda', border: '#28a745' },
+                      risk_alert: { icon: '⚠️', label: 'Risk Alert', bg: '#f8d7da', border: '#dc3545' },
+                    };
+                    const config = typeConfig[notif.type] || { icon: '🔔', label: 'Notification', bg: '#e2e3e5', border: '#6c757d' };
+                    return (
+                      <div key={notif.id} style={{ padding: '12px', marginBottom: '10px', background: config.bg, borderRadius: '8px', borderLeft: `4px solid ${config.border}` }}>
+                        <p style={{ fontWeight: 'bold', marginBottom: '5px' }}>{config.icon} {config.label}</p>
+                        <p style={{ marginBottom: '5px', fontSize: '14px' }}>{notif.message}</p>
+                        {notif.createdAt?.toDate && (
+                          <small style={{ color: '#666' }}>{notif.createdAt.toDate().toLocaleString()}</small>
+                        )}
+                        {notif.type === 'note_approval' && (
+                          <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
+                            <button
+                              className="btn btn-success"
+                              style={{ fontSize: '12px', padding: '5px 12px' }}
+                              onClick={() => handleNoteApproval(notif.id, notif.noteContent, true)}
+                            >
+                              ✓ Approve Parent Visibility
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              style={{ fontSize: '12px', padding: '5px 12px' }}
+                              onClick={() => handleNoteApproval(notif.id, notif.noteContent, false)}
+                            >
+                              ✗ Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}
           </>
         )}
       </div>
+
+      {/* Video Call Modal */}
+      {activeCall && (
+        <VideoCall
+          meetingId={activeCall.meetingId}
+          userId={activeCall.userId}
+          userName={activeCall.userName}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
     </div>
   );
 }

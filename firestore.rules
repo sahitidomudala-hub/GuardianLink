@@ -49,5 +49,10 @@ service cloud.firestore {
         resource.data.parentEmail == request.auth.token.email
       );
     }
+    
+    // WebRTC call signaling data
+    match /calls/{callId}/{document=**} {
+      allow read, write: if isSignedIn();
+    }
   }
 }

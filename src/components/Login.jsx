@@ -110,37 +110,6 @@ function Login() {
           </button>
         </form>
 
-        <div style={{ marginTop: '24px', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-          <p style={{ textAlign: 'center', color: '#888', fontSize: '12px', marginBottom: '10px' }}>
-            First time? Load demo accounts to get started.
-          </p>
-          <button
-            className="btn btn-success"
-            style={{ width: '100%', fontSize: '12px' }}
-            onClick={handleSeedDemo}
-            disabled={seeding || loading}
-          >
-            {seeding ? 'Loading Demo Data...' : '🚀 Load Demo Data'}
-          </button>
-        </div>
-
-        {seedLog.length > 0 && (
-          <div style={{
-            marginTop: '15px',
-            padding: '12px',
-            background: '#1e1e1e',
-            borderRadius: '6px',
-            maxHeight: '200px',
-            overflowY: 'auto',
-            fontSize: '11px',
-            fontFamily: 'monospace',
-            color: '#4ec9b0'
-          }}>
-            {seedLog.map((line, i) => (
-              <div key={i} style={{ marginBottom: '2px' }}>{line}</div>
-            ))}
-          </div>
-        )}
 
         <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#888' }}>
           Student or Parent? <Link to="/signup">Sign up here</Link>

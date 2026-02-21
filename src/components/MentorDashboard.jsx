@@ -13,9 +13,10 @@ import {
   arrayUnion,
   serverTimestamp
 } from 'firebase/firestore';
-import { getStatusColor, getRiskStatus } from '../utils/riskLogic';
+import { getStatusColor, getRiskStatus, evaluateRiskChange } from '../utils/riskLogic';
 import { generateStudentReport } from '../utils/pdfGenerator';
 import CSVImport from './CSVImport';
+import VideoCall from './VideoCall';
 
 function MentorDashboard() {
   const { logout, currentUser } = useAuth();
@@ -40,18 +41,28 @@ function MentorDashboard() {
   const [showCSVImport, setShowCSVImport] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', parentEmail: '', attendance: '', marks: '' });
-  const [meetingForm, setMeetingForm] = useState({ date: '', agenda: '' });
+  const [meetingForm, setMeetingForm] = useState({ date: '', agenda: '', invitees: 'student' });
   const [showMeetingForm, setShowMeetingForm] = useState(false);
+  const [activeCall, setActiveCall] = useState(null);
   const [editingNoteIndex, setEditingNoteIndex] = useState(null);
   const [editNoteContent, setEditNoteContent] = useState('');
   const [editingTaskIndex, setEditingTaskIndex] = useState(null);
   const [editTaskForm, setEditTaskForm] = useState({ title: '', description: '', dueDate: '' });
   const [feedbackText, setFeedbackText] = useState('');
   const [meetingRequests, setMeetingRequests] = useState([]);
+  const [noteFilter, setNoteFilter] = useState('all');
+  const [interventionNote, setInterventionNote] = useState('');
 
   useEffect(() => {
     fetchStudents();
     fetchMeetingRequests();
+
+    // Auto-refresh every 15s to pick up meeting status changes
+    const interval = setInterval(() => {
+      fetchStudents();
+      fetchMeetingRequests();
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchStudents = async () => {
@@ -221,9 +232,17 @@ function MentorDashboard() {
   const handleAddMeeting = async (e) => {
     e.preventDefault();
 
+    const inviteesArray = meetingForm.invitees === 'both'
+      ? ['student', 'parent']
+      : [meetingForm.invitees];
+
+    const meetingIdForCall = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     const meeting = {
       date: meetingForm.date,
       agenda: meetingForm.agenda,
+      invitees: inviteesArray,
+      meetingId: meetingIdForCall,
       status: 'pending',
       rescheduleCount: 0,
       createdAt: new Date().toISOString()
@@ -233,17 +252,19 @@ function MentorDashboard() {
     const updatedMeetings = [...(selectedStudent.meetings || []), meeting];
     await updateDoc(studentRef, { meetings: updatedMeetings });
 
-    // Notify student
-    await addDoc(collection(db, 'notifications'), {
-      type: 'meeting_scheduled',
-      studentEmail: selectedStudent.email,
-      message: `New meeting scheduled for ${meetingForm.date}: ${meetingForm.agenda}`,
-      createdAt: serverTimestamp(),
-      read: false
-    });
+    // Notify student if invited
+    if (inviteesArray.includes('student')) {
+      await addDoc(collection(db, 'notifications'), {
+        type: 'meeting_scheduled',
+        studentEmail: selectedStudent.email,
+        message: `New meeting scheduled for ${meetingForm.date}: ${meetingForm.agenda}`,
+        createdAt: serverTimestamp(),
+        read: false
+      });
+    }
 
-    // Notify parent too
-    if (selectedStudent.parentEmail) {
+    // Notify parent if invited
+    if (inviteesArray.includes('parent') && selectedStudent.parentEmail) {
       await addDoc(collection(db, 'notifications'), {
         type: 'meeting_scheduled',
         parentEmail: selectedStudent.parentEmail,
@@ -254,7 +275,7 @@ function MentorDashboard() {
       });
     }
 
-    setMeetingForm({ date: '', agenda: '' });
+    setMeetingForm({ date: '', agenda: '', invitees: 'student' });
     setShowMeetingForm(false);
     fetchStudents();
   };
@@ -366,30 +387,45 @@ function MentorDashboard() {
 
     const newAttendance = parseFloat(editForm.attendance);
     const newMarks = parseFloat(editForm.marks);
-    const wasAtRisk = getRiskStatus(editingStudent.attendance, editingStudent.marks);
-    const nowAtRisk = getRiskStatus(newAttendance, newMarks);
+    const risk = evaluateRiskChange(
+      editingStudent.attendance, editingStudent.marks,
+      newAttendance, newMarks
+    );
 
-    const studentRef = doc(db, 'students', editingStudent.id);
-    await updateDoc(studentRef, {
+    const updateData = {
       name: editForm.name,
       email: editForm.email,
       parentEmail: editForm.parentEmail,
       attendance: newAttendance,
       marks: newMarks,
+      atRisk: risk.isAtRisk,
       history: arrayUnion({
         attendance: newAttendance,
         marks: newMarks,
         date: new Date().toISOString()
       })
-    });
+    };
 
-    // If newly at risk, notify parent
-    if (!wasAtRisk && nowAtRisk) {
+    // Log risk event if status changed
+    if (risk.riskEvent) {
+      updateData.riskEvents = arrayUnion(risk.riskEvent);
+    }
+
+    // Clear intervention if student recovered
+    if (risk.recovered) {
+      updateData.intervention = null;
+    }
+
+    const studentRef = doc(db, 'students', editingStudent.id);
+    await updateDoc(studentRef, updateData);
+
+    // If newly at risk, notify parent with escalation
+    if (risk.newlyAtRisk) {
       await addDoc(collection(db, 'notifications'), {
         type: 'risk_alert',
         studentEmail: editForm.email,
         parentEmail: editForm.parentEmail,
-        message: `${editForm.name} is now at risk. Both attendance (${newAttendance}%) and marks (${newMarks}%) are critically low.`,
+        message: `⚠️ ${editForm.name} is now At-Risk. Attendance: ${newAttendance}% (${risk.attendanceStatus.toUpperCase()}), Marks: ${newMarks}% (${risk.marksStatus.toUpperCase()}). Immediate parent intervention may be required.`,
         createdAt: serverTimestamp(),
         read: false
       });
@@ -399,6 +435,32 @@ function MentorDashboard() {
     setEditForm({ name: '', email: '', parentEmail: '', attendance: '', marks: '' });
     fetchStudents();
   };
+
+  const handleInitiateIntervention = async () => {
+    if (!selectedStudent) return;
+    const studentRef = doc(db, 'students', selectedStudent.id);
+    const interventionData = {
+      initiated: true,
+      date: new Date().toISOString(),
+      note: interventionNote || 'Parent intervention initiated by mentor.',
+      mentorId: currentUser.uid
+    };
+    await updateDoc(studentRef, { intervention: interventionData });
+
+    // Notify parent
+    await addDoc(collection(db, 'notifications'), {
+      type: 'intervention_triggered',
+      studentEmail: selectedStudent.email,
+      parentEmail: selectedStudent.parentEmail,
+      message: `🚨 Immediate Parent Intervention has been initiated for ${selectedStudent.name}. Reason: ${interventionData.note}`,
+      createdAt: serverTimestamp(),
+      read: false
+    });
+
+    setInterventionNote('');
+    fetchStudents();
+  };
+
 
   const handleDeleteStudent = async (studentId, studentName) => {
     if (!window.confirm(`Are you sure you want to delete ${studentName}? This action cannot be undone.`)) {
@@ -625,9 +687,20 @@ function MentorDashboard() {
                     {student.marks}%
                   </td>
                   <td>
-                    {getRiskStatus(student.attendance, student.marks) && (
-                      <span className="alert alert-danger" style={{ padding: '4px 8px', display: 'inline-block', fontSize: '12px', marginBottom: 0 }}>
-                        At Risk
+                    {getRiskStatus(student.attendance, student.marks) ? (
+                      <div>
+                        <span style={{ display: 'inline-block', padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', borderRadius: '12px', background: '#f8d7da', color: '#721c24', marginBottom: '4px' }}>
+                          ⚠️ At Risk
+                        </span>
+                        {student.intervention?.initiated ? (
+                          <span style={{ display: 'block', fontSize: '10px', color: '#856404', marginTop: '2px' }}>🔄 Intervention Active</span>
+                        ) : (
+                          <span style={{ display: 'block', fontSize: '10px', color: '#dc3545', marginTop: '2px' }}>🚨 Intervention Required</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ display: 'inline-block', padding: '4px 10px', fontSize: '11px', borderRadius: '12px', background: '#d4edda', color: '#155724' }}>
+                        ✓ Stable
                       </span>
                     )}
                   </td>
@@ -680,13 +753,78 @@ function MentorDashboard() {
                 Close
               </button>
 
+              {/* Intervention Panel for At-Risk Students */}
+              {getRiskStatus(selectedStudent.attendance, selectedStudent.marks) && (
+                <div style={{ margin: '15px 0', padding: '15px', borderRadius: '8px', background: selectedStudent.intervention?.initiated ? '#fff3cd' : '#f8d7da', border: `2px solid ${selectedStudent.intervention?.initiated ? '#ffc107' : '#dc3545'}` }}>
+                  {selectedStudent.intervention?.initiated ? (
+                    <div>
+                      <h4 style={{ color: '#856404', marginBottom: '8px' }}>🔄 Intervention in Progress</h4>
+                      <p style={{ fontSize: '13px', color: '#666', marginBottom: '5px' }}>Initiated: {new Date(selectedStudent.intervention.date).toLocaleDateString()}</p>
+                      <p style={{ fontSize: '13px', color: '#555' }}><strong>Note:</strong> {selectedStudent.intervention.note}</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <h4 style={{ color: '#721c24', marginBottom: '8px' }}>🚨 Parent Intervention Required</h4>
+                      <p style={{ fontSize: '13px', color: '#666', marginBottom: '10px' }}>
+                        Both attendance ({selectedStudent.attendance}%) and marks ({selectedStudent.marks}%) are critically low.
+                      </p>
+                      <div className="form-group" style={{ marginBottom: '10px' }}>
+                        <textarea
+                          placeholder="Intervention note (e.g., reason, recommended actions)"
+                          value={interventionNote}
+                          onChange={(e) => setInterventionNote(e.target.value)}
+                          rows="2"
+                          style={{ fontSize: '13px' }}
+                        />
+                      </div>
+                      <button
+                        className="btn btn-danger"
+                        style={{ fontSize: '12px' }}
+                        onClick={handleInitiateIntervention}
+                      >
+                        🚨 Initiate Parent Intervention
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Existing Notes */}
               <div style={{ marginTop: '20px' }}>
-                <h4>Session Notes ({(selectedStudent.notes || []).length})</h4>
-                {(selectedStudent.notes || []).length === 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <h4>Session Notes ({(selectedStudent.notes || []).length})</h4>
+                  <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                    {['all', 'confidential', 'parentVisible', 'sensitive'].map(filter => (
+                      <button
+                        key={filter}
+                        onClick={() => setNoteFilter(filter)}
+                        style={{
+                          fontSize: '11px', padding: '3px 10px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+                          background: noteFilter === filter ? '#007bff' : '#e9ecef',
+                          color: noteFilter === filter ? '#fff' : '#495057'
+                        }}
+                      >
+                        {filter === 'all' ? 'All' : filter === 'confidential' ? '🔒 Confidential' : filter === 'parentVisible' ? '👁 Parent Visible' : '⚠ Sensitive'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {(selectedStudent.notes || []).filter(note => {
+                  if (noteFilter === 'all') return true;
+                  if (noteFilter === 'confidential') return note.isConfidential;
+                  if (noteFilter === 'parentVisible') return note.isParentVisible && !note.isConfidential;
+                  if (noteFilter === 'sensitive') return note.isSensitive;
+                  return true;
+                }).length === 0 ? (
                   <p style={{ color: '#999', fontStyle: 'italic', marginTop: '10px' }}>No notes yet</p>
                 ) : (
-                  (selectedStudent.notes || []).map((note, index) => {
+                  (selectedStudent.notes || []).filter(note => {
+                    if (noteFilter === 'all') return true;
+                    if (noteFilter === 'confidential') return note.isConfidential;
+                    if (noteFilter === 'parentVisible') return note.isParentVisible && !note.isConfidential;
+                    if (noteFilter === 'sensitive') return note.isSensitive;
+                    return true;
+                  }).map((note, index) => {
                     const badge = getNoteTypeBadge(note);
                     return (
                       <div key={index} style={{
@@ -826,8 +964,16 @@ function MentorDashboard() {
                       <div>
                         <h4 style={{ marginBottom: '5px' }}>{task.title}</h4>
                         <p style={{ color: '#666', marginBottom: '5px', fontSize: '14px' }}>{task.description}</p>
-                        <small style={{ color: '#999' }}>Due: {task.dueDate}</small>
-                        {task.completed && <span style={{ color: '#28a745', fontWeight: 'bold', marginLeft: '10px' }}>✓ Completed</span>}
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <small style={{ color: '#999' }}>Due: {task.dueDate}</small>
+                          {task.completed ? (
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#d4edda', color: '#155724', fontWeight: 'bold' }}>✓ Completed</span>
+                          ) : new Date(task.dueDate) < new Date() ? (
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#f8d7da', color: '#721c24', fontWeight: 'bold' }}>⚠ Overdue</span>
+                          ) : (
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#cce5ff', color: '#004085' }}>Pending</span>
+                          )}
+                        </div>
                       </div>
                       <div style={{ display: 'flex', gap: '5px' }}>
                         <button className="btn btn-primary" style={{ fontSize: '11px', padding: '3px 8px' }} onClick={() => handleEditTaskStart(index, task)}>Edit</button>
@@ -900,13 +1046,31 @@ function MentorDashboard() {
                 }}>
                   <p><strong>Date:</strong> {meeting.date}</p>
                   {meeting.agenda && <p><strong>Agenda:</strong> {meeting.agenda}</p>}
-                  <div style={{ display: 'flex', gap: '15px', marginTop: '5px' }}>
+                  <div style={{ display: 'flex', gap: '15px', marginTop: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <small style={{ color: '#666' }}>
                       <strong>Status:</strong> {meeting.status || 'pending'}
                     </small>
                     <small style={{ color: '#666' }}>
                       <strong>Reschedules:</strong> {meeting.rescheduleCount || 0}/2
                     </small>
+                    {meeting.invitees && (
+                      <small style={{ color: '#555' }}>
+                        <strong>With:</strong> {meeting.invitees.join(' & ')}
+                      </small>
+                    )}
+                    {meeting.status === 'accepted' && (
+                      <button
+                        className="btn btn-success"
+                        style={{ fontSize: '11px', padding: '4px 12px' }}
+                        onClick={() => setActiveCall({
+                          meetingId: meeting.meetingId || `meeting_${selectedStudent.id}_${meeting.date}`,
+                          userId: currentUser.uid,
+                          userName: 'Mentor'
+                        })}
+                      >
+                        📹 Join Call
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -936,6 +1100,41 @@ function MentorDashboard() {
                       rows="2"
                       required
                     />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ display: 'block', marginBottom: '8px' }}>Meeting With</label>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="invitees"
+                          value="student"
+                          checked={meetingForm.invitees === 'student'}
+                          onChange={(e) => setMeetingForm({ ...meetingForm, invitees: e.target.value })}
+                        />
+                        Student Only
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="invitees"
+                          value="parent"
+                          checked={meetingForm.invitees === 'parent'}
+                          onChange={(e) => setMeetingForm({ ...meetingForm, invitees: e.target.value })}
+                        />
+                        Parent Only
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="invitees"
+                          value="both"
+                          checked={meetingForm.invitees === 'both'}
+                          onChange={(e) => setMeetingForm({ ...meetingForm, invitees: e.target.value })}
+                        />
+                        Student & Parent
+                      </label>
+                    </div>
                   </div>
                   <button type="submit" className="btn btn-success">Schedule Meeting</button>
                 </form>
@@ -975,6 +1174,16 @@ function MentorDashboard() {
           </>
         )}
       </div>
+
+      {/* Video Call Modal */}
+      {activeCall && (
+        <VideoCall
+          meetingId={activeCall.meetingId}
+          userId={activeCall.userId}
+          userName={activeCall.userName}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
     </div>
   );
 }

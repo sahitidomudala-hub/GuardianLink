@@ -12,6 +12,7 @@ import {
 import { getStatusColor, getRiskStatus } from '../utils/riskLogic';
 import { requestNotificationPermission, checkAndNotify } from '../utils/webNotifications';
 import PerformanceChart from './PerformanceChart';
+import VideoCall from './VideoCall';
 
 function ParentDashboard() {
   const { logout, currentUser } = useAuth();
@@ -20,6 +21,7 @@ function ParentDashboard() {
   const [notifications, setNotifications] = useState([]);
   const [showMeetingRequest, setShowMeetingRequest] = useState(false);
   const [meetingReqForm, setMeetingReqForm] = useState({ date: '', time: '', reason: '' });
+  const [activeCall, setActiveCall] = useState(null);
 
   const prevNotifCount = React.useRef(0);
 
@@ -108,14 +110,35 @@ function ParentDashboard() {
               />
             </div>
 
-            {/* Risk Alert */}
+            {/* Risk Alert + Intervention Status */}
             {getRiskStatus(child.attendance, child.marks) && (
               <div className="alert alert-danger">
                 <strong>⚠️ URGENT: Student At Risk</strong>
-                <p style={{ marginTop: '10px', marginBottom: '0' }}>
+                <p style={{ marginTop: '10px', marginBottom: '10px' }}>
                   Your child needs immediate attention. Both attendance ({child.attendance}%) and marks ({child.marks}%)
                   are critically low. Please schedule a meeting with the mentor as soon as possible.
                 </p>
+                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div>
+                    <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '12px', background: getStatusColor(child.attendance, 'attendance') === 'red' ? '#f8d7da' : getStatusColor(child.attendance, 'attendance') === 'yellow' ? '#fff3cd' : '#d4edda', color: getStatusColor(child.attendance, 'attendance') === 'red' ? '#721c24' : getStatusColor(child.attendance, 'attendance') === 'yellow' ? '#856404' : '#155724' }}>
+                      Attendance: {child.attendance}%
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '12px', background: getStatusColor(child.marks, 'marks') === 'red' ? '#f8d7da' : getStatusColor(child.marks, 'marks') === 'yellow' ? '#fff3cd' : '#d4edda', color: getStatusColor(child.marks, 'marks') === 'red' ? '#721c24' : getStatusColor(child.marks, 'marks') === 'yellow' ? '#856404' : '#155724' }}>
+                      Marks: {child.marks}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Intervention Banner */}
+            {child.intervention?.initiated && (
+              <div style={{ padding: '15px', borderRadius: '8px', background: '#fff3cd', border: '2px solid #ffc107', marginBottom: '20px' }}>
+                <h4 style={{ color: '#856404', marginBottom: '8px' }}>🔄 Intervention in Progress</h4>
+                <p style={{ fontSize: '13px', color: '#666', marginBottom: '5px' }}>Initiated on: {new Date(child.intervention.date).toLocaleDateString()}</p>
+                <p style={{ fontSize: '13px', color: '#555' }}><strong>Details:</strong> {child.intervention.note}</p>
               </div>
             )}
 
@@ -182,19 +205,76 @@ function ParentDashboard() {
               )}
             </div>
 
+            {/* Parent's Meetings */}
+            {child.meetings && child.meetings.filter(m => m.invitees && m.invitees.includes('parent')).length > 0 && (
+              <div className="card">
+                <h3>Your Meetings</h3>
+                {child.meetings
+                  .filter(m => m.invitees && m.invitees.includes('parent'))
+                  .map((meeting, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        padding: '15px',
+                        background: meeting.status === 'accepted' ? '#d4edda' : '#f8f9fa',
+                        borderRadius: '4px',
+                        marginBottom: '10px',
+                        borderLeft: `4px solid ${meeting.status === 'accepted' ? '#28a745' : '#007bff'}`
+                      }}
+                    >
+                      <p><strong>Date:</strong> {meeting.date} {meeting.time ? `at ${meeting.time}` : ''}</p>
+                      {meeting.agenda && <p><strong>Agenda:</strong> {meeting.agenda}</p>}
+                      <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <small style={{ color: '#666' }}>
+                          <strong>Status:</strong> {meeting.status || 'pending'}
+                        </small>
+                        {meeting.invitees && (
+                          <small style={{ color: '#555' }}>
+                            <strong>With:</strong> {meeting.invitees.join(' & ')}
+                          </small>
+                        )}
+                        {meeting.status === 'accepted' && (
+                          <button
+                            className="btn btn-success"
+                            style={{ fontSize: '11px', padding: '4px 12px' }}
+                            onClick={() => setActiveCall({
+                              meetingId: meeting.meetingId || `meeting_${child.id}_${meeting.date}`,
+                              userId: currentUser.uid,
+                              userName: `${child.name}'s Parent`
+                            })}
+                          >
+                            📹 Join Call
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
             {/* Notifications */}
             {notifications.length > 0 && (
               <div className="card">
-                <h3>Notifications</h3>
-                {notifications.map(notif => (
-                  <div key={notif.id} className="alert alert-danger" style={{ marginBottom: '10px' }}>
-                    <p style={{ marginBottom: '5px' }}><strong>{notif.type === 'risk_alert' ? '⚠️ Risk Alert' : notif.type === 'meeting_rescheduled' ? '📅 Meeting Update' : '🔔 Notification'}</strong></p>
-                    <p style={{ marginBottom: '0' }}>{notif.message}</p>
-                    <small style={{ color: '#666' }}>
-                      {notif.createdAt?.toDate ? notif.createdAt.toDate().toLocaleString() : 'Just now'}
-                    </small>
-                  </div>
-                ))}
+                <h3>Notifications ({notifications.length})</h3>
+                {notifications.map(notif => {
+                  const typeConfig = {
+                    risk_alert: { icon: '⚠️', label: 'Risk Alert', bg: '#f8d7da', border: '#dc3545' },
+                    intervention_triggered: { icon: '🚨', label: 'Intervention', bg: '#fff3cd', border: '#ffc107' },
+                    meeting_scheduled: { icon: '📅', label: 'Meeting Scheduled', bg: '#cce5ff', border: '#007bff' },
+                    meeting_rescheduled: { icon: '📅', label: 'Meeting Update', bg: '#cce5ff', border: '#007bff' },
+                    task_assigned: { icon: '📋', label: 'New Task', bg: '#d4edda', border: '#28a745' },
+                  };
+                  const config = typeConfig[notif.type] || { icon: '🔔', label: 'Notification', bg: '#e2e3e5', border: '#6c757d' };
+                  return (
+                    <div key={notif.id} style={{ padding: '12px', marginBottom: '10px', background: config.bg, borderRadius: '8px', borderLeft: `4px solid ${config.border}` }}>
+                      <p style={{ marginBottom: '5px', fontWeight: 'bold' }}>{config.icon} {config.label}</p>
+                      <p style={{ marginBottom: '5px', fontSize: '14px' }}>{notif.message}</p>
+                      <small style={{ color: '#666' }}>
+                        {notif.createdAt?.toDate ? notif.createdAt.toDate().toLocaleString() : 'Just now'}
+                      </small>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -272,6 +352,16 @@ function ParentDashboard() {
           </div>
         )}
       </div>
+
+      {/* Video Call Modal */}
+      {activeCall && (
+        <VideoCall
+          meetingId={activeCall.meetingId}
+          userId={activeCall.userId}
+          userName={activeCall.userName}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
     </div>
   );
 }
