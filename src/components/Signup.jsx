@@ -19,11 +19,11 @@ function Signup() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (formData.password !== formData.confirmPassword) {
       return setError('Passwords do not match');
     }
-    
+
     if (formData.password.length < 6) {
       return setError('Password must be at least 6 characters');
     }
@@ -37,19 +37,19 @@ function Signup() {
         const studentsRef = collection(db, 'students');
         const q = query(studentsRef, where('email', '==', formData.email));
         const snapshot = await getDocs(q);
-        
+
         if (snapshot.empty) {
           setError('Student email not found. Please contact your mentor to add you first.');
           setLoading(false);
           return;
         }
       }
-      
+
       if (formData.role === 'parent') {
         const studentsRef = collection(db, 'students');
         const q = query(studentsRef, where('parentEmail', '==', formData.email));
         const snapshot = await getDocs(q);
-        
+
         if (snapshot.empty) {
           setError('Parent email not found. Please contact your child\'s mentor to add you first.');
           setLoading(false);
@@ -64,93 +64,96 @@ function Signup() {
     } catch (err) {
       setError('Failed to create account: ' + err.message);
     }
-    
+
     setLoading(false);
   };
 
   return (
-    <div className="container" style={{ maxWidth: '400px', marginTop: '50px' }}>
-      <div className="card">
-        <h1 style={{ marginBottom: '20px', textAlign: 'center' }}>GuardianLink</h1>
-        <p style={{ textAlign: 'center', marginBottom: '20px', color: '#666' }}>Create your account</p>
-        
+    <div className="login-page">
+      <div className="login-card">
+        <h1>GuardianLink</h1>
+        <p className="subtitle">Create your account</p>
+
         {error && <div className="alert alert-danger">{error}</div>}
-        
+
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Full Name</label>
-            <input 
-              type="text" 
-              value={formData.name} 
-              onChange={(e) => setFormData({...formData, name: e.target.value})} 
-              required 
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="Enter your full name"
+              required
             />
           </div>
-          
+
           <div className="form-group">
             <label>Email</label>
-            <input 
-              type="email" 
-              value={formData.email} 
-              onChange={(e) => setFormData({...formData, email: e.target.value})} 
-              required 
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="Enter your email"
+              required
             />
-            <small style={{ color: '#666', fontSize: '12px' }}>
+            <small style={{ color: '#888', fontSize: '12px' }}>
               {formData.role === 'student' && 'Use the email your mentor registered for you'}
-              {formData.role === 'parent' && 'Use the parent email your child\'s mentor registered'}
+              {formData.role === 'parent' && "Use the parent email your child's mentor registered"}
               {formData.role === 'mentor' && 'Any email address'}
             </small>
           </div>
-          
+
           <div className="form-group">
             <label>Password</label>
-            <input 
-              type="password" 
-              value={formData.password} 
-              onChange={(e) => setFormData({...formData, password: e.target.value})} 
-              required 
+            <input
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              placeholder="Create a password"
+              required
             />
           </div>
-          
+
           <div className="form-group">
             <label>Confirm Password</label>
-            <input 
-              type="password" 
-              value={formData.confirmPassword} 
-              onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})} 
-              required 
+            <input
+              type="password"
+              value={formData.confirmPassword}
+              onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+              placeholder="Confirm your password"
+              required
             />
           </div>
-          
+
           <div className="form-group">
-            <label>I am a</label>
-            <select 
-              value={formData.role} 
-              onChange={(e) => setFormData({...formData, role: e.target.value})}
+            <label>Role</label>
+            <select
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
             >
               <option value="student">Student</option>
               <option value="parent">Parent</option>
-              <option value="mentor">Mentor</option>
             </select>
           </div>
-          
+
           {formData.role !== 'mentor' && (
             <div className="alert alert-warning" style={{ fontSize: '13px', padding: '10px' }}>
               <strong>Note:</strong> Your mentor must add you to the system first before you can sign up.
             </div>
           )}
-          
-          <button 
-            type="submit" 
-            className="btn btn-primary" 
-            style={{ width: '100%' }}
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ width: '100%', padding: '12px', fontSize: '14px' }}
             disabled={loading}
           >
             {loading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
-        
-        <p style={{ textAlign: 'center', marginTop: '20px' }}>
+
+        <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#888' }}>
           Already have an account? <Link to="/login">Login</Link>
         </p>
       </div>
