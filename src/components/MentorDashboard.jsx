@@ -17,6 +17,7 @@ import { getStatusColor, getRiskStatus, evaluateRiskChange } from '../utils/risk
 import { generateStudentReport } from '../utils/pdfGenerator';
 import CSVImport from './CSVImport';
 import VideoCall from './VideoCall';
+import AIAssistant from './AIAssistant';
 
 function MentorDashboard() {
   const { logout, currentUser } = useAuth();
@@ -1140,6 +1141,9 @@ function MentorDashboard() {
                 </form>
               )}
             </div>
+
+            {/* AI ASSISTANT SECTION */}
+            <AIAssistant student={selectedStudent} />
 
             {/* MENTOR FEEDBACK SECTION */}
             <div className="card">
