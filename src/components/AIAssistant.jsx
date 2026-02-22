@@ -68,31 +68,60 @@ Recommended Academic Action:
 `;
 
         try {
-            const apiURL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            // Models to try in order of preference (added 2.0 experimental for cutting edge)
+            const models = ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro', 'gemini-1.0-pro'];
+            let lastError = null;
+            let success = false;
 
-            const res = await fetch(apiURL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }]
-                })
-            });
+            for (const model of models) {
+                try {
+                    const apiURL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-            const data = await res.json();
+                    const res = await fetch(apiURL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }]
+                        })
+                    });
 
-            if (data.error) {
-                throw new Error(data.error.message || 'API Error');
+                    if (res.ok) {
+                        const data = await res.json();
+                        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (aiText) {
+                            setResponse(aiText);
+                            success = true;
+                            break; // Success!
+                        }
+                    } else if (res.status !== 404) {
+                        // If it's not a 404 (not found), it's a real error (e.g. 401, 429)
+                        const errorData = await res.json().catch(() => ({}));
+                        throw new Error(errorData.error?.message || `API Error ${res.status}`);
+                    }
+                    // If it's a 404, we'll try the next model in the loop
+                    const errJson = await res.json().catch(() => ({}));
+                    lastError = errJson.error?.message || `Model ${model} not found`;
+                } catch (innerErr) {
+                    lastError = innerErr.message;
+                    if (innerErr.message !== 'Failed to fetch' && !innerErr.message.includes('not found')) {
+                        throw innerErr; // Rethrow serious errors like Auth or Rate Limit
+                    }
+                }
             }
 
-            const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (aiText) {
-                setResponse(aiText);
-            } else {
-                throw new Error('No response from AI assistant. Please try again.');
+            if (!success) {
+                throw new Error(lastError || 'Could not find a compatible Gemini model for your API key.');
             }
+
         } catch (err) {
-            setError(err.message);
-            console.error('AI Assistant Error:', err);
+            console.error('AI Assistant Diagnostic Error:', err);
+            if (err.message === 'Failed to fetch') {
+                setError('Network error: Could not reach Google AI servers. Check your internet or ad-blocker.');
+            } else if (err.message.includes('not found')) {
+                setError(`API Error: The AI model was not found. Please ensure the "Generative Language API" is enabled in your Google Cloud Console for this project.`);
+            } else {
+                setError(err.message);
+            }
         } finally {
             setLoading(false);
         }
@@ -123,7 +152,7 @@ Recommended Academic Action:
                 </div>
                 <div>
                     <h4 style={{ margin: 0, color: '#1a1a1a', fontSize: '18px' }}>Guardian AI Mentor Assistant</h4>
-                    <span style={{ fontSize: '12px', color: '#666' }}>Powered by Gemini 2.0 Flash</span>
+                    <span style={{ fontSize: '12px', color: '#666' }}>Powered by Gemini 2.5 (Experimental)</span>
                 </div>
             </div>
 
