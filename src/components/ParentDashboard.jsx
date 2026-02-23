@@ -118,14 +118,14 @@ function ParentDashboard() {
                   Your child needs immediate attention. Both attendance ({child.attendance}%) and marks ({child.marks}%)
                   are critically low. Please schedule a meeting with the mentor as soon as possible.
                 </p>
-                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="flex-responsive" style={{ gap: '15px', alignItems: 'center' }}>
                   <div>
-                    <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '12px', background: getStatusColor(child.attendance, 'attendance') === 'red' ? '#f8d7da' : getStatusColor(child.attendance, 'attendance') === 'yellow' ? '#fff3cd' : '#d4edda', color: getStatusColor(child.attendance, 'attendance') === 'red' ? '#721c24' : getStatusColor(child.attendance, 'attendance') === 'yellow' ? '#856404' : '#155724' }}>
+                    <span style={{ display: 'inline-block', fontSize: '12px', padding: '3px 10px', borderRadius: '12px', background: getStatusColor(child.attendance, 'attendance') === 'red' ? '#f8d7da' : getStatusColor(child.attendance, 'attendance') === 'yellow' ? '#fff3cd' : '#d4edda', color: getStatusColor(child.attendance, 'attendance') === 'red' ? '#721c24' : getStatusColor(child.attendance, 'attendance') === 'yellow' ? '#856404' : '#155724' }}>
                       Attendance: {child.attendance}%
                     </span>
                   </div>
                   <div>
-                    <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '12px', background: getStatusColor(child.marks, 'marks') === 'red' ? '#f8d7da' : getStatusColor(child.marks, 'marks') === 'yellow' ? '#fff3cd' : '#d4edda', color: getStatusColor(child.marks, 'marks') === 'red' ? '#721c24' : getStatusColor(child.marks, 'marks') === 'yellow' ? '#856404' : '#155724' }}>
+                    <span style={{ display: 'inline-block', fontSize: '12px', padding: '3px 10px', borderRadius: '12px', background: getStatusColor(child.marks, 'marks') === 'red' ? '#f8d7da' : getStatusColor(child.marks, 'marks') === 'yellow' ? '#fff3cd' : '#d4edda', color: getStatusColor(child.marks, 'marks') === 'red' ? '#721c24' : getStatusColor(child.marks, 'marks') === 'yellow' ? '#856404' : '#155724' }}>
                       Marks: {child.marks}%
                     </span>
                   </div>
@@ -154,8 +154,8 @@ function ParentDashboard() {
 
             {/* Request Meeting */}
             <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3>Schedule a Meeting with Mentor</h3>
+              <div className="flex-responsive" style={{ justifyContent: 'space-between', marginBottom: '15px' }}>
+                <h3 style={{ margin: 0, border: 'none' }}>Schedule a Meeting with Mentor</h3>
                 <button
                   className="btn btn-primary"
                   style={{ fontSize: '12px', padding: '6px 14px' }}
@@ -170,7 +170,7 @@ function ParentDashboard() {
 
               {showMeetingRequest && (
                 <form onSubmit={handleMeetingRequest} style={{ padding: '15px', background: '#f0f7ff', borderRadius: '8px', marginTop: '10px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div className="grid-cols-responsive" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                     <div className="form-group">
                       <label>Preferred Date</label>
                       <input

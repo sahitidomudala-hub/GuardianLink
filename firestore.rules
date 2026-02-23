@@ -11,19 +11,11 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if true;
     }
     
     match /students/{studentId} {
-      allow read, write: if isSignedIn() && getUserRole() == 'mentor';
-      allow read, update: if isSignedIn() && 
-                     getUserRole() == 'student' && 
-                     resource.data.email == request.auth.token.email;
-      allow read: if isSignedIn() && 
-                     getUserRole() == 'parent' && 
-                     resource.data.parentEmail == request.auth.token.email;
+      allow read, write: if true;
     }
     
     match /notifications/{notificationId} {

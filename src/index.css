@@ -74,14 +74,22 @@ a:hover {
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 16px;
+  /* Reduced for mobile */
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding: 24px;
+  }
 }
 
 /* ── Navbar ── */
 .navbar {
   background: linear-gradient(135deg, var(--nmims-dark) 0%, #3a3a3a 100%);
   color: var(--nmims-white);
-  padding: 0 28px;
+  padding: 0 16px;
+  /* Reduced for mobile */
   height: 60px;
   display: flex;
   justify-content: space-between;
@@ -92,27 +100,83 @@ a:hover {
   z-index: 100;
 }
 
+@media (min-width: 768px) {
+  .navbar {
+    padding: 0 28px;
+  }
+}
+
 .navbar h2 {
   color: var(--nmims-white);
-  font-size: 18px;
+  font-size: 16px;
+  /* Scaled for mobile */
   font-weight: 700;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 768px) {
+  .navbar h2 {
+    font-size: 18px;
+  }
 }
 
 .navbar h2::before {
   content: '🛡️ ';
-  font-size: 16px;
+  font-size: 14px;
+}
+
+/* ── Responsive Utilities ── */
+.grid-cols-responsive {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 15px;
+}
+
+@media (min-width: 768px) {
+  .grid-cols-responsive {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.flex-responsive {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 768px) {
+  .flex-responsive {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Cards ── */
 .card {
   background: var(--nmims-white);
   border-radius: var(--radius);
-  padding: 24px;
+  padding: 16px;
+  /* Reduced for mobile */
   margin-bottom: 20px;
   box-shadow: var(--shadow-md);
   border: 1px solid rgba(0, 0, 0, 0.04);
   transition: box-shadow 0.2s ease;
+}
+
+@media (min-width: 768px) {
+  .card {
+    padding: 24px;
+  }
 }
 
 .card:hover {
@@ -400,6 +464,109 @@ button[style*="borderBottom"] {
   .card {
     box-shadow: none;
     border: 1px solid #ddd;
+  }
+}
+
+/* ── Filter Dropdown ── */
+.filter-option {
+  transition: all 0.2s ease;
+}
+
+.filter-option:hover {
+  background: #f8f9fa !important;
+  color: var(--nmims-red);
+  padding-left: 14px !important;
+}
+
+/* ── Manage Student Modal ── */
+.manage-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+.manage-modal-content {
+  background: var(--nmims-white);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 900px;
+  max-height: calc(100dvh - 40px);
+  /* Use dynamic vh to handle mobile bars */
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+  animation: slideUp 0.25s ease;
+  overflow: hidden;
+  /* Ensure content is trapped for internal scroll */
+}
+
+.manage-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 2px solid var(--nmims-red);
+  flex-shrink: 0;
+}
+
+.manage-modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.manage-modal-body .card {
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .manage-modal-content {
+    max-width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+    /* Full screen-ish on mobile */
+    margin: 0;
+  }
+
+  .manage-modal-overlay {
+    padding: 0;
+    /* Remove padding to maximize mobile space */
+  }
+
+  .manage-modal-body {
+    padding: 16px;
   }
 }
 
