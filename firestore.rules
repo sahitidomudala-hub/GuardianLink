@@ -1,50 +1,77 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
+    // ------------------ HELPERS ------------------
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
     function getUserRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-    
+
+    function isMentor() {
+      return isSignedIn() && getUserRole() == 'mentor';
+    }
+
+    function isStudent() {
+      return isSignedIn() && getUserRole() == 'student';
+    }
+
+    function isParent() {
+      return isSignedIn() && getUserRole() == 'parent';
+    }
+
+    // ------------------ USERS ------------------
     match /users/{userId} {
-      allow read, write: if true;
+      // Users can read/write ONLY their own profile
+      allow read, write: if isOwner(userId);
     }
-    
+
+    // ------------------ STUDENTS ------------------
     match /students/{studentId} {
-      allow read, write: if true;
+      // Student can access own data OR mentor can access all
+      allow read: if isOwner(studentId) || isMentor();
+      allow write: if isOwner(studentId);
     }
-    
+
+    // ------------------ NOTIFICATIONS ------------------
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && (
-        resource.data.studentEmail == request.auth.token.email ||
-        resource.data.parentEmail == request.auth.token.email
+      // Only intended recipient can read/update
+      allow read, update: if isSignedIn() && (
+        request.auth.uid == resource.data.studentId ||
+        request.auth.uid == resource.data.parentId
       );
+
+      // Only authenticated users can create (you can tighten this later)
       allow create: if isSignedIn();
-      allow update: if isSignedIn() && (
-        resource.data.studentEmail == request.auth.token.email ||
-        resource.data.parentEmail == request.auth.token.email
-      );
     }
-    
+
+    // ------------------ MEETING REQUESTS ------------------
     match /meetingRequests/{requestId} {
-      // Mentors can read and manage all requests
-      allow read, write: if isSignedIn() && getUserRole() == 'mentor';
+
+      // Mentors can read/write everything
+      allow read, write: if isMentor();
+
       // Students and parents can create requests
-      allow create: if isSignedIn() && (getUserRole() == 'student' || getUserRole() == 'parent');
-      // Requesters can read their own requests
+      allow create: if isStudent() || isParent();
+
+      // Request owners can read their own requests
       allow read: if isSignedIn() && (
-        resource.data.studentEmail == request.auth.token.email ||
-        resource.data.parentEmail == request.auth.token.email
+        request.auth.uid == resource.data.studentId ||
+        request.auth.uid == resource.data.parentId
       );
     }
-    
-    // WebRTC call signaling data
+
+    // ------------------ CALLS (WebRTC signaling) ------------------
     match /calls/{callId}/{document=**} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() &&
+        request.auth.uid in resource.data.participants;
     }
   }
 }
